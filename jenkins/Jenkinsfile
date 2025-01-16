@@ -1,0 +1,64 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'anuragsuraj23/project:latest'
+        DOCKER_REGISTRY = 'docker.io'
+        KUBE_CONFIG = credentials('KUBE_CONFIG')
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image
+                    sh 'docker build -t $DOCKER_IMAGE .'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    // Log in to Docker Hub
+                    withCredentials([usernamePassword(credentialsId: 'DOCKER_CREDENTIALS', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
+                    }
+
+                    // Push the Docker image
+                    sh 'docker push $DOCKER_IMAGE'
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Set Kubeconfig for Kubernetes
+                    writeFile file: 'kubeconfig.yaml', text: "$KUBE_CONFIG"
+                    sh 'kubectl --kubeconfig=kubeconfig.yaml apply -f k8s/namespace.yaml'
+                    sh 'kubectl --kubeconfig=kubeconfig.yaml apply -f k8s/deployment.yaml'
+                    sh 'kubectl --kubeconfig=kubeconfig.yaml apply -f k8s/service.yaml'
+                    sh 'kubectl --kubeconfig=kubeconfig.yaml apply -f k8s/ingress.yaml'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline execution completed successfully.'
+        }
+
+        failure {
+            echo 'Pipeline execution failed.'
+        }
+    }
+}
+
